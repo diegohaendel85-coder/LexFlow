@@ -16,8 +16,9 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURAÇÃO DA API ---
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+// ATENÇÃO: Ao enviar para o Vercel, substitua as aspas vazias por: import.meta.env.VITE_GEMINI_API_KEY
+const apiKey = ""; 
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
 
 // --- REGRAS DE OURO ---
 const GOLDEN_RULES = `
@@ -33,22 +34,17 @@ REGRAS ABSOLUTAS E INQUEBRÁVEIS PARA ESTA RESPOSTA:
 const Logo = ({ collapsed }) => (
   <div className={`flex items-center gap-3 transition-all duration-300 ${collapsed ? 'justify-center' : 'justify-start'}`}>
     <div className="relative flex items-center justify-center w-10 h-10 rounded-lg bg-[#080B14] shadow-[0_0_15px_rgba(197,160,89,0.3)] shrink-0 border border-[#C5A059]/20">
-      <svg viewBox="0 0 40 40" className="w-7 h-7" fill="none" xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)">
+      <svg viewBox="0 0 40 40" className="w-7 h-7" fill="none" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="goldGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
             <stop stopColor="#C5A059"/>
             <stop offset="1" stopColor="#9A7B4F"/>
           </linearGradient>
         </defs>
-        {/* Pilar Central e Base */}
         <path d="M20 8 V32 M15 32 H25" stroke="url(#goldGrad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-        {/* Haste Superior */}
         <path d="M10 14 Q 20 10 30 14" stroke="url(#goldGrad)" strokeWidth="2.5" strokeLinecap="round"/>
-        {/* Prato Esquerdo */}
         <path d="M10 14 L5 25 H15 L10 14 Z" stroke="url(#goldGrad)" strokeWidth="1.5" strokeLinejoin="round"/>
-        {/* Prato Direito */}
         <path d="M30 14 L25 25 H35 L30 14 Z" stroke="url(#goldGrad)" strokeWidth="1.5" strokeLinejoin="round"/>
-        {/* Seta Dinâmica de Fluidez */}
         <path d="M4 28 C 12 36, 22 24, 34 10" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round"/>
         <path d="M29 9 L35 9 L35 15" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
@@ -85,7 +81,7 @@ const ModalErro = ({ erro, onClose }) => {
 // --- FUNÇÕES UTILITÁRIAS ---
 
 const exportToDoc = (text) => {
-  const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'><head><meta charset='utf-8'><title>LexFlow Document</title></head><body>";
+  const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>LexFlow Document</title></head><body>";
   const footer = "</body></html>";
   const html = header + (text ? text.replace(/\n/g, '<br>') : '') + footer;
   const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
@@ -185,7 +181,10 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Erro na API (${response.status}): O oráculo falhou em processar a requisição.`);
+        // EXTRAÇÃO DO ERRO NATIVO DA GOOGLE
+        const errorData = await response.json().catch(() => ({}));
+        const googleError = errorData?.error?.message || "O oráculo falhou em processar a requisição e não retornou detalhes.";
+        throw new Error(`Detalhe da Google (${response.status}): ${googleError}`);
       }
 
       const data = await response.json();
@@ -357,7 +356,6 @@ export default function App() {
                 <button onClick={() => exportToDoc(data)} className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-white transition-colors bg-blue-600 rounded shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"><Download className="w-3 h-3" /> Exportar .DOC</button>
               </div>
             </div>
-            {/* Adicionado padding envolvente e flex-1 min-h-0 para scroll perfeito interno */}
             <div className="flex-1 p-8 md:p-12 overflow-y-auto custom-scrollbar-light bg-[#E5E7EB]">
               <div className="max-w-3xl mx-auto bg-white shadow-xl min-h-[842px] p-12 md:p-16 text-black font-serif text-justify whitespace-pre-wrap leading-relaxed border border-gray-200">
                 {data}
@@ -370,7 +368,6 @@ export default function App() {
           <div className="p-8 space-y-8 animate-in fade-in duration-500 w-full">
             <h2 className="text-2xl font-light text-white border-b border-white/10 pb-6">Cotejo Analítico</h2>
             <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#1A2235]">
-              {/* Adicionado table-fixed para evitar que textos muito longos deformem as colunas */}
               <table className="w-full text-left border-collapse table-fixed min-w-[600px]">
                 <thead>
                   <tr className="bg-[#1A2235]">
@@ -464,13 +461,11 @@ export default function App() {
         </header>
 
         {/* WORKSPACE DIVIDIDO */}
-        {/* Usando min-h-0 para garantir que o flex não estoure a altura da tela */}
         <div className="flex-1 flex overflow-hidden min-h-0">
           
           {/* INPUT AREA (Esquerda) */}
           <div className="w-1/2 flex flex-col border-r border-white/5 bg-[#0A0E17] min-w-0">
             <div className="flex-1 p-6 flex flex-col relative group min-h-0">
-              {/* Adicionado bg-black/20 e focus:ring para maior ergonomia visual */}
               <textarea
                 ref={textAreaRef}
                 value={inputText}
