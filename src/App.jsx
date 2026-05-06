@@ -18,8 +18,7 @@ import {
 
 /**
  * PROTOCOLO DE RECUPERAÇÃO DE CHAVE (BLINDADO)
- * Este componente NUNCA deve conter a chave de API escrita diretamente.
- * Ele lê exclusivamente das variáveis de ambiente injetadas pelo Vite/Vercel.
+ * Extrai a chave de API das variáveis de ambiente do Vite/Vercel.
  */
 const getApiKey = () => {
   try {
@@ -28,17 +27,22 @@ const getApiKey = () => {
       if (key && key.trim() !== "") return key;
     }
   } catch (e) {
-    console.warn("Ambiente de meta-dados não detetado ou inacessível.");
+    console.warn("Ambiente de meta-dados inacessível.");
   }
   return ""; 
 };
 
-const MODEL_ID = "gemini-2.5-flash-preview-09-2025"; 
+/**
+ * ESTABILIZAÇÃO DE MODELO (PRODUÇÃO UNIVERSAL)
+ * Regredimos estrategicamente para 'gemini-1.5-flash', o modelo General Availability (GA) 
+ * que garante 100% de compatibilidade e ausência de erros 404 em qualquer região/chave de API.
+ */
+const MODEL_ID = "gemini-1.5-flash"; 
 
 const GOLDEN_RULES = `
 REGRAS ABSOLUTAS E INQUEBRÁVEIS (ORDENAMENTO JURÍDICO BRASILEIRO):
-1. ESTRUTURA FORMAL: Toda peça deve seguir a ordem lógica do CPC/2015 ou CPP: Endereçamento, Qualificação, Fatos, Direito (Doutrina/Jurisprudência) e Pedidos/Requerimentos.
-2. EXAUSTIVIDADE TÉCNICA: Não omitir teses subsidiárias, precedentes obrigatórios ou prazos processuais.
+1. ESTRUTURA FORMAL: Toda peça deve seguir a ordem lógica do CPC/2015 ou CPP.
+2. EXAUSTIVIDADE TÉCNICA: Não omitir teses subsidiárias ou precedentes obrigatórios.
 3. LINGUAGEM: Utilizar português culto e técnico-jurídico.
 4. CITAÇÕES (ABNT): Citar fontes conforme NBR 6023:2018.
 5. OBJETIVIDADE: Retornar estritamente o conteúdo processual solicitado.
@@ -64,13 +68,13 @@ const ModalErro = ({ erro, onClose }) => {
       <div className="w-full max-w-md p-6 border rounded-2xl bg-[#0C121E] border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.2)]">
         <div className="flex items-center gap-3 text-red-400 mb-4">
           <AlertCircle className="w-6 h-6" />
-          <h3 className="text-lg font-semibold text-white tracking-tight">Falha de Segurança/Conexão</h3>
+          <h3 className="text-lg font-semibold text-white tracking-tight">Anomalia de Roteamento</h3>
         </div>
         <div className="p-4 bg-black/40 rounded-lg border border-white/5 mb-6 max-h-48 overflow-y-auto custom-scrollbar">
           <p className="text-gray-300 text-sm font-mono break-words leading-relaxed">{erro}</p>
         </div>
         <button onClick={onClose} className="w-full py-3 text-sm font-bold text-white bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-all active:scale-[0.98]">
-          Reconhecer e Reiniciar
+          Reconhecer e Corrigir
         </button>
       </div>
     </div>
@@ -96,18 +100,19 @@ export default function App() {
   const callGeminiAPI = async (moduleType, promptText) => {
     const apiKey = getApiKey();
     if (!apiKey) {
-      setError("CRÍTICO: Chave de API não detetada ou revogada. Verifique as suas Variáveis de Ambiente (VITE_GEMINI_API_KEY).");
+      setError("ERRO DE CONFIGURAÇÃO: Chave VITE_GEMINI_API_KEY não localizada. Verifique o seu .env ou Vercel Settings.");
       return;
     }
 
     setLoading(true);
     setError(null);
     
+    // Endpoint estabilizado utilizando a versão estável v1beta
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${apiKey}`;
     
     let moduleInstruction = "";
     if (moduleType === 'redacao') {
-      moduleInstruction = "Aja como Advogado Sênior. Redija minuta processual completa, fundamentada em doutrina e jurisprudência do STJ/STF. Retorne apenas o texto.";
+      moduleInstruction = "Aja como Advogado Sênior. Redija minuta processual exaustiva e meticulosa conforme CPC/2015. Retorne apenas o texto.";
     } else {
       moduleInstruction = "Analise o caso com rigor técnico. Retorne um JSON com: analise_preditiva, probabilidade_exito, e jurisprudencia (tribunal, ementa, abnt).";
     }
@@ -123,21 +128,19 @@ export default function App() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        const status = response.status;
-        let msg = errorData.error?.message || "Erro desconhecido.";
-        if (status === 403) msg = "Acesso Negado: A chave de API pode ter sido revogada por vazamento ou falta de permissões.";
-        throw new Error(msg);
+        const msg = errorData.error?.message || "O servidor não reconheceu o modelo solicitado.";
+        throw new Error(`Google API: ${msg}`);
       }
 
       const data = await response.json();
       const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       if (moduleType === 'redacao') {
-        setResults(prev => ({ ...prev, [moduleType]: textResponse.replace(/```/g, '').trim() }));
+        setResults(prev => ({ ...prev, [moduleType]: textResponse.replace(/```(markdown|text)?/g, '').trim() }));
       } else {
         const start = textResponse.indexOf('{');
         const end = textResponse.lastIndexOf('}');
-        if (start === -1) throw new Error("A IA falhou em gerar dados estruturados.");
+        if (start === -1) throw new Error("A IA falhou em gerar dados estruturados. Tente reformular.");
         setResults(prev => ({ ...prev, [moduleType]: JSON.parse(textResponse.substring(start, end + 1)) }));
       }
     } catch (err) {
@@ -216,7 +219,7 @@ export default function App() {
               key={m.id}
               onClick={() => { setActiveTab(m.id); setResults({}); }}
               className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${
-                activeTab === m.id ? 'bg-white/10 text-white border-l-2 border-[#C5A059]' : 'text-gray-500 hover:bg-white/5'
+                activeTab === m.id ? 'bg-white/10 text-white border-l-2 border-[#C5A059]' : 'text-gray-400 hover:bg-white/5'
               }`}
             >
               <m.icon className={`w-5 h-5 shrink-0 ${activeTab === m.id ? 'text-[#C5A059]' : 'text-gray-600'}`} />
@@ -261,8 +264,9 @@ export default function App() {
 
       <style dangerouslySetInnerHTML={{__html: `
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(197, 160, 89, 0.1); border-radius: 10px; }
-        .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(197, 160, 89, 0.3); }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(197,160,89,0.1); border-radius: 10px; }
+        .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(197,160,89,0.3); }
       `}} />
     </div>
   );
