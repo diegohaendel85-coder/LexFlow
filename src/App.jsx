@@ -15,16 +15,23 @@ import {
   Zap
 } from 'lucide-react';
 
-// --- CONFIGURAÇÃO DA API ---
 /**
- * IMPORTANTE PARA O SEU AMBIENTE LOCAL (VS CODE/VERCEL):
- * Substitua a string vazia abaixo por: import.meta.env.VITE_GEMINI_API_KEY
- * Deixamos como "" apenas para garantir a compatibilidade de compilação neste ambiente de pré-visualização.
+ * LÓGICA DE RECUPERAÇÃO DA CHAVE DE API
+ * No Vite/Vercel, as variáveis de ambiente são acessadas via import.meta.env.
+ * O bloco try/catch evita erros de compilação no ambiente de testes.
  */
-const apiKey = ""; 
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+const getApiKey = () => {
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      return import.meta.env.VITE_GEMINI_API_KEY || "";
+    }
+  } catch (e) {
+    console.warn("Ambiente de meta-dados não detectado.");
+  }
+  return ""; 
+};
 
-// --- REGRAS DE OURO ---
+// --- REGRAS DE OURO (PROMPT ENGINEERING) ---
 const GOLDEN_RULES = `
 REGRAS ABSOLUTAS E INQUEBRÁVEIS PARA ESTA RESPOSTA:
 1. Em resumos e análises, não deixe nenhum assunto de fora. Seja exaustivo e meticuloso.
@@ -74,7 +81,7 @@ const ModalErro = ({ erro, onClose }) => {
           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
         </div>
         <p className="text-gray-300 text-sm leading-relaxed mb-6">{erro}</p>
-        <button onClick={onClose} className="w-full py-3 text-sm font-medium text-white transition-colors bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 focus:outline-none focus:ring-2 focus:ring-red-500/50">
+        <button onClick={onClose} className="w-full py-3 text-sm font-medium text-white transition-colors bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 focus:outline-none">
           Reconhecer e Fechar
         </button>
       </div>
@@ -85,7 +92,7 @@ const ModalErro = ({ erro, onClose }) => {
 // --- FUNÇÕES UTILITÁRIAS ---
 
 const exportToDoc = (text) => {
-  const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>LexFlow Document</title></head><body>";
+  const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>";
   const footer = "</body></html>";
   const html = header + (text ? text.replace(/\n/g, '<br>') : '') + footer;
   const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
@@ -103,11 +110,7 @@ const copyToClipboard = (text) => {
   textArea.value = text;
   document.body.appendChild(textArea);
   textArea.select();
-  try {
-    document.execCommand('copy');
-  } catch (err) {
-    console.error('Falha ao copiar:', err);
-  }
+  try { document.execCommand('copy'); } catch (err) {}
   document.body.removeChild(textArea);
 };
 
@@ -131,24 +134,27 @@ export default function App() {
   ];
 
   const callGeminiAPI = async (moduleType, promptText) => {
-    // Validação de segurança
-    if (!apiKey && typeof import.meta !== 'undefined' && !import.meta.env?.VITE_GEMINI_API_KEY) {
-      setError("Chave de API não configurada. Certifique-se de definir VITE_GEMINI_API_KEY no seu ambiente.");
+    const key = getApiKey();
+    
+    if (!key) {
+      setError("Erro de Configuração: A chave de API não foi detectada no ambiente. Verifique se adicionou VITE_GEMINI_API_KEY no painel do Vercel e se realizou o Redeploy.");
       return;
     }
 
     setLoading(true);
     setError(null);
     
+    // Endpoint estabilizado utilizando identificador canônico para Gemini 1.5 Flash
+    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
     let fullPrompt = `${GOLDEN_RULES}\n\nTEXTO BASE PARA ANÁLISE:\n"${promptText}"\n\n`;
     
     if (moduleType === 'analisar') {
-      fullPrompt += `DEVOLVA EXATAMENTE UM JSON com esta estrutura:
+      fullPrompt += `DEVOLVA EXATAMENTE UM JSON:
       {
         "analise_preditiva": "Sua análise detalhada e exaustiva aqui",
         "probabilidade_exito": 85,
         "jurisprudencia": [
-          {"tribunal": "STJ", "ementa": "Resumo da ementa...", "abnt": "Referência ABNT..."}
+          {"tribunal": "STJ", "ementa": "...", "abnt": "..."}
         ]
       }`;
     } else if (moduleType === 'jurimetria') {
@@ -163,30 +169,22 @@ export default function App() {
       fullPrompt += `DEVOLVA EXATAMENTE UM JSON:
       {
         "score_tecnico": 8,
-        "vulnerabilidades": [
-          {"tipo": "Prazo Decadencial", "descricao": "Risco detectado...", "severidade": "Alta"}
-        ]
+        "vulnerabilidades": [{"tipo": "...", "descricao": "...", "severidade": "Alta"}]
       }`;
     } else if (moduleType === 'cotejo') {
       fullPrompt += `DEVOLVA EXATAMENTE UM JSON:
       {
-        "comparativos": [
-          {"elemento": "Dano Moral", "recorrido": "...", "paradigma": "..."}
-        ]
+        "comparativos": [{"elemento": "...", "recorrido": "...", "paradigma": "..."}]
       }`;
     } else if (moduleType === 'redacao') {
-      fullPrompt += `Redija uma minuta processual estruturada. Retorne APENAS o texto da minuta.`;
+      fullPrompt += `Redija uma minuta processual estruturada, culta e persuasiva. Retorne APENAS o texto da minuta. Inclua fontes em ABNT NBR 6023.`;
     }
-
-    const payload = {
-      contents: [{ parts: [{ text: fullPrompt }] }]
-    };
 
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
       });
 
       if (!response.ok) {
@@ -201,29 +199,21 @@ export default function App() {
       if (!textResponse) throw new Error("A API retornou uma resposta vazia.");
 
       let finalData;
-
       if (moduleType === 'redacao') {
         finalData = textResponse.replace(/```(markdown|html)?\n/gi, '').replace(/```/g, '');
       } else {
         const firstBrace = textResponse.indexOf('{');
         const lastBrace = textResponse.lastIndexOf('}');
-        
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
-          const jsonString = textResponse.substring(firstBrace, lastBrace + 1);
-          try {
-            finalData = JSON.parse(jsonString);
-          } catch (e) {
-            throw new Error("Falha ao processar a estrutura de dados da IA.");
-          }
+        if (firstBrace !== -1 && lastBrace !== -1) {
+          finalData = JSON.parse(textResponse.substring(firstBrace, lastBrace + 1));
         } else {
-          throw new Error("O motor não devolveu a estrutura JSON esperada.");
+          throw new Error("O oráculo falhou em estruturar o JSON. Tente novamente.");
         }
       }
 
       setResults(prev => ({ ...prev, [moduleType]: finalData }));
-
     } catch (err) {
-      setError(err.message || "Ocorreu um erro inesperado.");
+      setError(err.message || "Erro inesperado.");
     } finally {
       setLoading(false);
     }
@@ -231,7 +221,7 @@ export default function App() {
 
   const handleAction = () => {
     if (!inputText.trim()) {
-      setError("Por favor, insira o conteúdo para análise.");
+      setError("Insira o conteúdo jurídico para análise.");
       return;
     }
     callGeminiAPI(activeTab, inputText);
@@ -240,10 +230,8 @@ export default function App() {
   const renderSkeleton = () => (
     <div className="p-8 space-y-8 animate-pulse w-full">
       <div className="h-8 bg-white/5 rounded-lg w-1/3"></div>
-      <div className="space-y-4">
-        <div className="h-4 bg-white/5 rounded w-full"></div>
-        <div className="h-4 bg-white/5 rounded w-5/6"></div>
-      </div>
+      <div className="h-4 bg-white/5 rounded w-full"></div>
+      <div className="h-4 bg-white/5 rounded w-5/6"></div>
       <div className="grid grid-cols-2 gap-6 pt-4">
         <div className="h-32 bg-white/5 rounded-xl"></div>
         <div className="h-32 bg-white/5 rounded-xl"></div>
@@ -254,10 +242,10 @@ export default function App() {
   const renderEmptyState = () => {
     const Icon = modules.find(m => m.id === activeTab).icon;
     return (
-      <div className="flex flex-col items-center justify-center h-full w-full text-center opacity-40 p-8">
+      <div className="flex flex-col items-center justify-center h-full w-full opacity-40 p-8 text-center select-none">
         <Icon className="w-24 h-24 mb-6 text-gray-500" strokeWidth={1} />
         <h3 className="text-xl font-light text-white mb-2">Aguardando Parâmetros</h3>
-        <p className="text-sm text-gray-400 max-w-sm">Insira o texto no workspace e execute o módulo.</p>
+        <p className="text-sm text-gray-400 max-w-sm">Insira o texto jurídico no workspace e execute o módulo de {modules.find(m => m.id === activeTab).label.toLowerCase()}.</p>
       </div>
     );
   };
@@ -272,10 +260,11 @@ export default function App() {
           <div className="p-8 space-y-8 animate-in fade-in duration-500 w-full">
             <div className="flex items-center justify-between border-b border-white/10 pb-6">
               <h2 className="text-2xl font-light text-white">Análise Preditiva</h2>
-              <div className="text-xl font-bold text-[#C5A059]">{data.probabilidade_exito}% Sucesso</div>
+              <div className="text-xl font-bold text-[#C5A059]">{data.probabilidade_exito || 0}% Sucesso</div>
             </div>
-            <p className="text-gray-300 leading-relaxed break-words">{data.analise_preditiva}</p>
+            <p className="text-gray-300 leading-relaxed break-words whitespace-pre-wrap">{data.analise_preditiva}</p>
             <div className="space-y-4 mt-8">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Precedentes e Doutrina</h3>
               {data.jurisprudencia?.map((item, idx) => (
                 <div key={idx} className="p-6 bg-[#0C121E] border rounded-xl border-white/5">
                   <span className="text-xs font-bold text-[#C5A059] uppercase block mb-2">{item.tribunal}</span>
@@ -298,7 +287,7 @@ export default function App() {
                     <span>{taxa.taxa_procedencia}% Procedência</span>
                   </div>
                   <div className="h-2 bg-[#1A2235] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#3B82F6]" style={{ width: `${taxa.taxa_procedencia}%` }}></div>
+                    <div className="h-full bg-[#3B82F6]" style={{ width: `${taxa.taxa_procedencia || 0}%` }}></div>
                   </div>
                 </div>
               ))}
@@ -308,44 +297,46 @@ export default function App() {
       case 'auditoria':
         return (
           <div className="p-8 space-y-8 w-full">
-            <h2 className="text-2xl font-light text-white border-b border-white/10 pb-6">Score Técnico: {data.score_tecnico}/10</h2>
-            {data.vulnerabilidades?.map((v, i) => (
-              <div key={i} className="p-4 border-l-4 border-red-500 bg-[#0C121E] rounded-r-xl">
-                <h4 className="font-medium text-white">{v.tipo} ({v.severidade})</h4>
-                <p className="text-sm text-gray-400">{v.descricao}</p>
-              </div>
-            ))}
+            <h2 className="text-2xl font-light text-white border-b border-white/10 pb-6">Score de Compliance: {data.score_tecnico}/10</h2>
+            <div className="space-y-4">
+              {data.vulnerabilidades?.map((v, i) => (
+                <div key={i} className="p-4 border-l-4 border-red-500 bg-[#0C121E] rounded-r-xl">
+                  <h4 className="font-medium text-white">{v.tipo} ({v.severidade})</h4>
+                  <p className="text-sm text-gray-400">{v.descricao}</p>
+                </div>
+              ))}
+            </div>
           </div>
         );
       case 'redacao':
         return (
           <div className="flex flex-col h-full bg-[#E5E7EB] rounded-tl-xl overflow-hidden w-full">
             <div className="p-4 bg-[#D1D5DB] border-b border-gray-300 flex justify-between">
-              <span className="text-sm font-medium">Minuta Gerada</span>
-              <button onClick={() => exportToDoc(data)} className="px-3 py-1 bg-blue-600 text-white text-xs rounded">Exportar .DOC</button>
+              <span className="text-sm font-medium text-gray-700">Minuta_Processual.doc</span>
+              <button onClick={() => exportToDoc(data)} className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors">Exportar .DOC</button>
             </div>
-            <div className="flex-1 p-8 overflow-y-auto">
-              <div className="max-w-3xl mx-auto bg-white p-12 text-black font-serif shadow-xl whitespace-pre-wrap">{data}</div>
+            <div className="flex-1 p-8 overflow-y-auto custom-scrollbar-light">
+              <div className="max-w-3xl mx-auto bg-white p-16 text-black font-serif shadow-2xl whitespace-pre-wrap leading-relaxed border border-gray-200">{data}</div>
             </div>
           </div>
         );
       case 'cotejo':
         return (
           <div className="p-8 w-full overflow-x-auto">
-            <table className="w-full text-left table-fixed min-w-[600px] border-collapse">
+            <table className="w-full text-left table-fixed min-w-[600px] border-collapse bg-[#0C121E] rounded-xl overflow-hidden border border-white/5">
               <thead>
                 <tr className="bg-[#1A2235]">
-                  <th className="p-4 text-xs font-bold text-[#C5A059] uppercase border-b border-white/10">Elemento</th>
-                  <th className="p-4 text-xs font-bold text-gray-400 uppercase border-b border-white/10">Recorrido</th>
-                  <th className="p-4 text-xs font-bold text-gray-400 uppercase border-b border-white/10">Paradigma</th>
+                  <th className="p-4 text-xs font-bold text-[#C5A059] uppercase w-1/4">Elemento</th>
+                  <th className="p-4 text-xs font-bold text-gray-400 uppercase w-3/8">Decisão Recorrida</th>
+                  <th className="p-4 text-xs font-bold text-gray-400 uppercase w-3/8">Acórdão Paradigma</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-white/5">
                 {data.comparativos?.map((c, i) => (
-                  <tr key={i} className="hover:bg-white/[0.02]">
-                    <td className="p-4 text-white align-top">{c.elemento}</td>
-                    <td className="p-4 text-sm text-gray-400 italic">"{c.recorrido}"</td>
-                    <td className="p-4 text-sm text-gray-400 italic border-l border-white/5">"{c.paradigma}"</td>
+                  <tr key={i} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="p-4 text-white align-top font-medium">{c.elemento}</td>
+                    <td className="p-4 text-sm text-gray-400 align-top italic">"{c.recorrido}"</td>
+                    <td className="p-4 text-sm text-gray-400 align-top italic border-l border-white/5">"{c.paradigma}"</td>
                   </tr>
                 ))}
               </tbody>
@@ -357,41 +348,71 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#080B14] text-gray-100 overflow-hidden">
+    <div className="flex h-screen bg-[#080B14] text-gray-100 overflow-hidden font-sans selection:bg-[#C5A059]/30">
       <ModalErro erro={error} onClose={() => setError(null)} />
 
+      {/* SIDEBAR */}
       <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-72'} transition-all duration-300 bg-[#0C121E] border-r border-white/5 flex flex-col shrink-0`}>
-        <div className="p-6 h-20 flex items-center border-b border-white/5"><Logo collapsed={isSidebarCollapsed} /></div>
-        <nav className="flex-1 p-4 space-y-2">
+        <div className="p-6 h-20 flex items-center border-b border-white/5 shrink-0 overflow-hidden">
+          <Logo collapsed={isSidebarCollapsed} />
+        </div>
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
           {modules.map((mod) => (
-            <button key={mod.id} onClick={() => setActiveTab(mod.id)} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${activeTab === mod.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5'}`}>
-              <mod.icon className="w-5 h-5" /> {!isSidebarCollapsed && <span className="text-sm font-medium">{mod.label}</span>}
+            <button key={mod.id} onClick={() => setActiveTab(mod.id)} className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all group ${activeTab === mod.id ? 'bg-white/10 text-white shadow-lg border-l-2 border-[#C5A059]' : 'text-gray-400 hover:bg-white/5'}`}>
+              <mod.icon className={`w-5 h-5 shrink-0 ${activeTab === mod.id ? 'text-[#C5A059]' : 'text-gray-500 group-hover:text-gray-300'}`} /> 
+              {!isSidebarCollapsed && <span className="text-sm font-medium">{mod.label}</span>}
             </button>
           ))}
         </nav>
       </aside>
 
+      {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <header className="h-20 px-8 flex items-center border-b border-white/5 bg-[#080B14] shrink-0">
-          <h1 className="text-xl font-light uppercase tracking-widest">{modules.find(m => m.id === activeTab).label}</h1>
+        <header className="h-20 px-8 flex items-center border-b border-white/5 bg-[#080B14]/50 backdrop-blur-md shrink-0">
+          <h1 className="text-xl font-light uppercase tracking-[0.2em] text-white/90">{modules.find(m => m.id === activeTab).label}</h1>
         </header>
+
         <div className="flex-1 flex overflow-hidden min-h-0">
+          {/* WORKSPACE */}
           <div className="w-1/2 flex flex-col border-r border-white/5 bg-[#0A0E17]">
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Insira o texto jurídico aqui..."
-              className="flex-1 m-6 p-6 bg-black/20 border border-white/5 rounded-xl text-lg focus:outline-none resize-none"
-            />
+            <div className="flex-1 p-6 flex flex-col relative min-h-0">
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Insira o relato fático ou a peça processual aqui para processamento..."
+                className="flex-1 p-6 bg-black/30 border border-white/5 rounded-2xl text-lg font-light leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 transition-all custom-scrollbar placeholder:opacity-20"
+              />
+            </div>
             <div className="p-6 border-t border-white/5 bg-[#0C121E]">
-              <button onClick={handleAction} disabled={loading} className="w-full py-4 bg-gradient-to-r from-[#C5A059] to-[#9A7B4F] text-[#080B14] font-bold rounded-xl shadow-lg">
-                {loading ? "PROCESSANDO..." : `EXECUTAR ${activeTab.toUpperCase()}`}
+              <button onClick={handleAction} disabled={loading} className="w-full py-4 bg-gradient-to-r from-[#C5A059] to-[#9A7B4F] text-[#080B14] font-bold rounded-xl shadow-xl hover:shadow-[#C5A059]/20 active:scale-[0.98] transition-all disabled:opacity-50">
+                {loading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-[#080B14]/30 border-t-[#080B14] rounded-full animate-spin" />
+                    <span>PROCESSANDO...</span>
+                  </div>
+                ) : (
+                  <span>EXECUTAR {activeTab.toUpperCase()}</span>
+                )}
               </button>
             </div>
           </div>
-          <div className="w-1/2 flex flex-col bg-[#080B14] overflow-y-auto relative">{loading ? renderSkeleton() : renderResult()}</div>
+
+          {/* RESULTS */}
+          <div className="w-1/2 flex flex-col bg-[#080B14] overflow-y-auto custom-scrollbar scroll-smooth">
+            {loading ? renderSkeleton() : renderResult()}
+          </div>
         </div>
       </main>
+
+      <style dangerouslySetInnerHTML={{__html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.05); border-radius: 10px; }
+        .custom-scrollbar:hover::-webkit-scrollbar-thumb { background-color: rgba(197, 160, 89, 0.2); }
+        .custom-scrollbar-light::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar-light::-webkit-scrollbar-track { background: #E5E7EB; }
+        .custom-scrollbar-light::-webkit-scrollbar-thumb { background-color: #CBD5E1; border-radius: 10px; }
+      `}} />
     </div>
   );
 }
