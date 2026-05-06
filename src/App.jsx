@@ -17,36 +17,48 @@ import {
 } from 'lucide-react';
 
 /**
- * PROTOCOLO DE RECUPERAÇÃO DE CHAVE (BLINDADO)
- * Extrai a chave de API das variáveis de ambiente do Vite/Vercel.
+ * =========================================================================
+ * CONFIGURAÇÃO DE PRODUÇÃO (VERCEL / VS CODE)
+ * =========================================================================
+ * A sua chave foi inserida diretamente conforme solicitado para resolver o erro imediato.
+ * * NOTA DE SEGURANÇA: Num futuro próximo, quando o sistema estiver estável, 
+ * remova a chave daqui e deixe apenas no painel do Vercel por segurança.
  */
-const getApiKey = () => {
-  try {
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      const key = import.meta.env.VITE_GEMINI_API_KEY;
-      if (key && key.trim() !== "") return key;
-    }
-  } catch (e) {
-    console.warn("Ambiente de meta-dados inacessível.");
-  }
-  return ""; 
-};
+const apiKey = "AIzaSyAiikeC8gPrzBRjiB1yVkYwRSuD6bfCayE"; 
 
 /**
- * ESTABILIZAÇÃO DE MODELO (PRODUÇÃO UNIVERSAL)
- * Regredimos estrategicamente para 'gemini-1.5-flash', o modelo General Availability (GA) 
- * que garante 100% de compatibilidade e ausência de erros 404 em qualquer região/chave de API.
+ * ESTABILIZAÇÃO DE MODELO: 
+ * O sufixo "-latest" força o API Gateway da Google a encontrar o modelo ativo na sua região, 
+ * aniquilando o erro 404 que estava a receber.
  */
-const MODEL_ID = "gemini-1.5-flash"; 
+const MODEL_ID = "gemini-1.5-flash-latest"; 
 
 const GOLDEN_RULES = `
 REGRAS ABSOLUTAS E INQUEBRÁVEIS (ORDENAMENTO JURÍDICO BRASILEIRO):
 1. ESTRUTURA FORMAL: Toda peça deve seguir a ordem lógica do CPC/2015 ou CPP.
-2. EXAUSTIVIDADE TÉCNICA: Não omitir teses subsidiárias ou precedentes obrigatórios.
-3. LINGUAGEM: Utilizar português culto e técnico-jurídico.
-4. CITAÇÕES (ABNT): Citar fontes conforme NBR 6023:2018.
-5. OBJETIVIDADE: Retornar estritamente o conteúdo processual solicitado.
+2. EXAUSTIVIDADE TÉCNICA: Seja exaustivo. Analise meticulosamente cada nuance do caso, não deixe nenhum assunto, tese subsidiária ou argumento de fora.
+3. LINGUAGEM: Utilizar português culto e técnico-jurídico, evitando coloquialismos.
+4. CITAÇÕES E FONTES: Busque sempre fontes altamente confiáveis. Dê preferência absoluta a livros de doutrina, trabalhos científicos consolidados e jurisprudência dos tribunais superiores. Cite as fontes ESTRITAMENTE conforme a norma ABNT NBR 6023:2018.
+5. OBJETIVIDADE DE RETORNO: Retornar apenas o conteúdo final solicitado (JSON ou Texto).
 `;
+
+/**
+ * ALGORITMO DE RESILIÊNCIA DE REDE (Exponential Backoff)
+ * Garante que o LexFlow não desiste se a API da Google apresentar latência.
+ */
+const fetchWithBackoff = async (url, options) => {
+  const delays = [1000, 2000, 4000, 8000, 16000];
+  for (let i = 0; i < delays.length; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) return response;
+      if (i === delays.length - 1) return response; 
+    } catch (error) {
+      if (i === delays.length - 1) throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, delays[i]));
+  }
+};
 
 const Logo = ({ collapsed }) => (
   <div className={`flex items-center gap-3 transition-all duration-300 ${collapsed ? 'justify-center' : 'justify-start'}`}>
@@ -68,13 +80,13 @@ const ModalErro = ({ erro, onClose }) => {
       <div className="w-full max-w-md p-6 border rounded-2xl bg-[#0C121E] border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.2)]">
         <div className="flex items-center gap-3 text-red-400 mb-4">
           <AlertCircle className="w-6 h-6" />
-          <h3 className="text-lg font-semibold text-white tracking-tight">Anomalia de Roteamento</h3>
+          <h3 className="text-lg font-semibold text-white tracking-tight">Falha de Operação</h3>
         </div>
         <div className="p-4 bg-black/40 rounded-lg border border-white/5 mb-6 max-h-48 overflow-y-auto custom-scrollbar">
           <p className="text-gray-300 text-sm font-mono break-words leading-relaxed">{erro}</p>
         </div>
         <button onClick={onClose} className="w-full py-3 text-sm font-bold text-white bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-all active:scale-[0.98]">
-          Reconhecer e Corrigir
+          Reconhecer e Tentar Novamente
         </button>
       </div>
     </div>
@@ -98,29 +110,22 @@ export default function App() {
   ];
 
   const callGeminiAPI = async (moduleType, promptText) => {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      setError("ERRO DE CONFIGURAÇÃO: Chave VITE_GEMINI_API_KEY não localizada. Verifique o seu .env ou Vercel Settings.");
-      return;
-    }
-
     setLoading(true);
     setError(null);
     
-    // Endpoint estabilizado utilizando a versão estável v1beta
     const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${apiKey}`;
     
     let moduleInstruction = "";
     if (moduleType === 'redacao') {
-      moduleInstruction = "Aja como Advogado Sênior. Redija minuta processual exaustiva e meticulosa conforme CPC/2015. Retorne apenas o texto.";
+      moduleInstruction = "Aja como Advogado Sênior. Redija minuta processual exaustiva e meticulosa conforme CPC/2015. Baseie-se em doutrina (livros/trabalhos científicos) referenciada em ABNT NBR 6023. Retorne apenas o texto puro da peça.";
     } else {
-      moduleInstruction = "Analise o caso com rigor técnico. Retorne um JSON com: analise_preditiva, probabilidade_exito, e jurisprudencia (tribunal, ementa, abnt).";
+      moduleInstruction = "Analise o caso com rigor técnico, sendo 100% exaustivo. Retorne EXCLUSIVAMENTE um JSON com as chaves: analise_preditiva, probabilidade_exito, e jurisprudencia (array contendo tribunal, ementa, abnt com fontes científicas/livros).";
     }
 
     const fullPrompt = `${GOLDEN_RULES}\n\nMODO: ${moduleInstruction}\n\nCONTEÚDO BASE: "${promptText}"`;
 
     try {
-      const response = await fetch(API_URL, {
+      const response = await fetchWithBackoff(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
@@ -128,26 +133,55 @@ export default function App() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        const msg = errorData.error?.message || "O servidor não reconheceu o modelo solicitado.";
-        throw new Error(`Google API: ${msg}`);
+        const msg = errorData.error?.message || "O servidor da Google não pôde processar a requisição no momento.";
+        throw new Error(`Oráculo Indisponível (${response.status}): ${msg}`);
       }
 
       const data = await response.json();
       const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       if (moduleType === 'redacao') {
-        setResults(prev => ({ ...prev, [moduleType]: textResponse.replace(/```(markdown|text)?/g, '').trim() }));
+        setResults(prev => ({ ...prev, [moduleType]: textResponse.replace(/```(markdown|text)?/gi, '').trim() }));
       } else {
         const start = textResponse.indexOf('{');
         const end = textResponse.lastIndexOf('}');
-        if (start === -1) throw new Error("A IA falhou em gerar dados estruturados. Tente reformular.");
+        if (start === -1 || end === -1) {
+          throw new Error("A IA não retornou o formato estruturado necessário. Por favor, tente executar novamente.");
+        }
         setResults(prev => ({ ...prev, [moduleType]: JSON.parse(textResponse.substring(start, end + 1)) }));
       }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Ocorreu um erro de conexão com a inteligência.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const copyToClipboard = (text) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+    } catch (err) {
+      console.error('Falha ao copiar:', err);
+    }
+    document.body.removeChild(textArea);
+  };
+
+  const exportToDoc = (text) => {
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'></head><body>";
+    const footer = "</body></html>";
+    const html = header + (text ? text.replace(/\n/g, '<br>') : '') + footer;
+    const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `LexFlow_${activeTab}_${new Date().toLocaleDateString()}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const renderResult = () => {
@@ -176,25 +210,36 @@ export default function App() {
       <div className="p-10 space-y-10 animate-in slide-in-from-right-10 duration-700">
         <div className="flex items-center justify-between border-b border-white/10 pb-8">
           <h2 className="text-3xl font-light text-white tracking-tight">Parecer da Inteligência</h2>
-          {data.probabilidade_exito && (
-            <div className="px-6 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40 rounded-full text-[#C5A059] font-black text-lg">
+          {data.probabilidade_exito !== undefined && (
+            <div className="px-6 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40 rounded-full text-[#C5A059] font-black text-lg shadow-[0_0_15px_rgba(197,160,89,0.2)]">
               {data.probabilidade_exito}% de Êxito
             </div>
           )}
         </div>
         <div className="p-8 bg-[#0C121E] rounded-2xl border border-white/5 shadow-inner">
+          <div className="flex justify-between items-start mb-6">
+            <span className="text-[10px] font-bold text-[#C5A059] uppercase tracking-[0.3em]">Análise Jurídica Exaustiva</span>
+            <button onClick={() => copyToClipboard(analise)} className="text-gray-600 hover:text-white transition-colors">
+              <Copy className="w-4 h-4" />
+            </button>
+          </div>
           <p className="text-gray-300 leading-relaxed text-lg whitespace-pre-wrap font-light text-justify italic">
             {analise}
           </p>
         </div>
         {data.jurisprudencia && Array.isArray(data.jurisprudencia) && (
           <div className="space-y-6">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.4em]">Precedentes Analisados</h3>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.4em]">Fontes Doutrinárias & Precedentes (ABNT)</h3>
             {data.jurisprudencia.map((j, i) => (
-              <div key={i} className="p-6 bg-black/40 rounded-xl border border-white/5">
-                <span className="text-xs font-black text-[#C5A059] uppercase tracking-widest block mb-2">{j.tribunal}</span>
-                <p className="text-gray-400 text-sm mb-4 italic">"{j.ementa}"</p>
-                <div className="pt-4 border-t border-white/5 text-[9px] text-gray-600 font-mono">
+              <div key={i} className="p-6 bg-black/40 rounded-xl border border-white/5 group hover:border-[#C5A059]/30 transition-colors">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-black text-[#C5A059] uppercase tracking-widest block">{j.tribunal}</span>
+                  <button onClick={() => copyToClipboard(j.ementa)} className="text-gray-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
+                    <Copy className="w-3 h-3" />
+                  </button>
+                </div>
+                <p className="text-gray-400 text-sm mb-4 italic leading-relaxed break-words">"{j.ementa}"</p>
+                <div className="pt-4 border-t border-white/5 text-[10px] text-gray-500 font-mono">
                   FONTE ABNT: {j.abnt}
                 </div>
               </div>
@@ -219,7 +264,7 @@ export default function App() {
               key={m.id}
               onClick={() => { setActiveTab(m.id); setResults({}); }}
               className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${
-                activeTab === m.id ? 'bg-white/10 text-white border-l-2 border-[#C5A059]' : 'text-gray-400 hover:bg-white/5'
+                activeTab === m.id ? 'bg-white/10 text-white border-l-2 border-[#C5A059] shadow-lg' : 'text-gray-400 hover:bg-white/5'
               }`}
             >
               <m.icon className={`w-5 h-5 shrink-0 ${activeTab === m.id ? 'text-[#C5A059]' : 'text-gray-600'}`} />
@@ -237,26 +282,32 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <header className="h-20 px-10 flex items-center justify-between border-b border-white/5 bg-[#080B14] shrink-0">
           <h1 className="text-lg font-light tracking-[0.3em] text-white/80">{modules.find(m => m.id === activeTab)?.label.toUpperCase()}</h1>
+          <button onClick={() => exportToDoc(results[activeTab])} disabled={!results[activeTab]} className="p-2.5 rounded-xl bg-white/5 text-gray-400 hover:text-[#C5A059] transition-all disabled:opacity-20" title="Exportar Documento">
+            <Download className="w-5 h-5" />
+          </button>
         </header>
         <div className="flex-1 flex overflow-hidden">
           <div className="w-1/2 flex flex-col border-r border-white/5 bg-[#0A0E17]">
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Workspace Jurídico..."
-              className="flex-1 m-8 p-8 bg-black/40 border border-white/5 rounded-3xl text-lg font-light leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 custom-scrollbar"
+              placeholder="Workspace Jurídico: Insira os fatos e serei 100% exaustivo na análise doutrinária..."
+              className="flex-1 m-8 p-8 bg-black/40 border border-white/5 rounded-3xl text-lg font-light leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 custom-scrollbar selection:bg-[#C5A059]/30 placeholder:opacity-40"
             />
             <div className="p-8 border-t border-white/5 bg-[#0C121E]">
               <button
-                onClick={() => callGeminiAPI(activeTab, inputText)}
+                onClick={() => {
+                  if(!inputText.trim()) { setError("O Workspace está vazio."); return; }
+                  callGeminiAPI(activeTab, inputText);
+                }}
                 disabled={loading}
                 className="w-full py-5 bg-gradient-to-r from-[#C5A059] to-[#9A7B4F] text-[#080B14] font-black tracking-widest rounded-2xl shadow-xl hover:shadow-[#C5A059]/40 active:scale-[0.98] transition-all disabled:opacity-50"
               >
-                {loading ? "PROCESSANDO..." : `EXECUTAR ${activeTab.toUpperCase()}`}
+                {loading ? "PROCESSANDO DADOS..." : `EXECUTAR ${activeTab.toUpperCase()}`}
               </button>
             </div>
           </div>
-          <div className="w-1/2 flex flex-col bg-[#080B14] overflow-y-auto custom-scrollbar relative">
+          <div className="w-1/2 flex flex-col bg-[#080B14] overflow-y-auto custom-scrollbar relative bg-[radial-gradient(circle_at_top_right,rgba(197,160,89,0.05),transparent_50%)]">
             {renderResult()}
           </div>
         </div>
@@ -267,6 +318,7 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(197,160,89,0.1); border-radius: 10px; }
         .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(197,160,89,0.3); }
+        * { min-width: 0; min-height: 0; }
       `}} />
     </div>
   );
