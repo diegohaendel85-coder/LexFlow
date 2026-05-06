@@ -79,7 +79,9 @@ const ModalErro = ({ erro, onClose }) => {
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
         </div>
-        <p className="text-gray-300 text-sm leading-relaxed mb-6 font-mono break-words bg-black/30 p-4 rounded-lg">{erro}</p>
+        <p className="text-gray-300 text-sm leading-relaxed mb-6 font-mono break-words bg-black/30 p-4 rounded-lg">
+          {typeof erro === 'string' ? erro : JSON.stringify(erro)}
+        </p>
         <button onClick={onClose} className="w-full py-3 text-sm font-medium text-white transition-colors bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20">
           Reconhecer e Fechar
         </button>
@@ -150,13 +152,22 @@ export default function App() {
         const start = text.indexOf('{');
         const end = text.lastIndexOf('}');
         if (start === -1 || end === -1) throw new Error("A IA falhou ao estruturar os dados. Tente novamente.");
-        setResults(prev => ({ ...prev, [moduleType]: JSON.parse(text.substring(start, end + 1)) }));
+        const jsonContent = text.substring(start, end + 1);
+        setResults(prev => ({ ...prev, [moduleType]: JSON.parse(jsonContent) }));
       }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Erro inesperado.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAction = () => {
+    if (!inputText.trim()) {
+      setError("Por favor, insira os dados no workspace para processar.");
+      return;
+    }
+    callGeminiAPI(activeTab, inputText);
   };
 
   const renderResult = () => {
@@ -171,10 +182,15 @@ export default function App() {
     if (activeTab === 'redacao') {
       return (
         <div className="p-16 bg-white text-black font-serif min-h-full whitespace-pre-wrap text-justify shadow-2xl animate-in fade-in duration-700">
-          {data}
+          {typeof data === 'string' ? data : JSON.stringify(data, null, 2)}
         </div>
       );
     }
+
+    // Prevenção de erro: Garantir que analise_preditiva seja renderizável
+    const analise = typeof data.analise_preditiva === 'object' 
+      ? JSON.stringify(data.analise_preditiva, null, 2) 
+      : (data.analise_preditiva || JSON.stringify(data, null, 2));
 
     return (
       <div className="p-10 space-y-8 animate-in slide-in-from-bottom-4 duration-500">
@@ -186,10 +202,10 @@ export default function App() {
         </div>
         <div className="p-6 bg-[#0C121E] rounded-2xl border border-white/5 shadow-inner">
           <p className="text-gray-300 leading-relaxed text-lg whitespace-pre-wrap italic font-light">
-            {data.analise_preditiva || JSON.stringify(data, null, 2)}
+            {analise}
           </p>
         </div>
-        {data.jurisprudencia && (
+        {data.jurisprudencia && Array.isArray(data.jurisprudencia) && (
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Fundamentação Jurisprudencial</h3>
             {data.jurisprudencia.map((j, i) => (
@@ -212,28 +228,33 @@ export default function App() {
       <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-72'} bg-[#0C121E] border-r border-white/5 flex flex-col transition-all duration-300 shrink-0 z-20`}>
         <div className="p-6 h-20 flex items-center border-b border-white/5"><Logo collapsed={isSidebarCollapsed} /></div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
-          {modules.map(m => (
-            <button key={m.id} onClick={() => setActiveTab(m.id)} className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${activeTab === m.id ? 'bg-white/10 text-white border-l-2 border-[#C5A059] shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}>
-              <m.icon className={`w-5 h-5 shrink-0 ${activeTab === m.id ? 'text-[#C5A059]' : ''}`} /> 
-              {!isSidebarCollapsed && <span className="text-sm font-medium tracking-wide">{m.label}</span>}
-            </button>
-          ))}
+          {modules.map(m => {
+            const Icon = m.icon;
+            return (
+              <button key={m.id} onClick={() => setActiveTab(m.id)} className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${activeTab === m.id ? 'bg-white/10 text-white border-l-2 border-[#C5A059] shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}>
+                <Icon className={`w-5 h-5 shrink-0 ${activeTab === m.id ? 'text-[#C5A059]' : ''}`} /> 
+                {!isSidebarCollapsed && <span className="text-sm font-medium tracking-wide">{m.label}</span>}
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         <header className="h-20 px-8 flex items-center border-b border-white/5 bg-[#080B14]/80 backdrop-blur-md shrink-0 uppercase tracking-[0.2em] text-white/60 text-xs font-bold">
-          {modules.find(m => m.id === activeTab).label}
+          {modules.find(m => m.id === activeTab)?.label || "Módulo"}
         </header>
 
         <div className="flex-1 flex overflow-hidden min-h-0">
           <div className="w-1/2 flex flex-col border-r border-white/5 bg-[#0A0E17]">
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Workspace: Insira os fatos, ementas ou decisões para processamento exaustivo..."
-              className="flex-1 m-6 p-8 bg-black/30 border border-white/5 rounded-2xl text-lg font-light leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 transition-all custom-scrollbar placeholder:opacity-20"
-            />
+            <div className="flex-1 p-6 flex flex-col relative min-h-0">
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Workspace: Insira os fatos, ementas ou decisões para processamento exaustivo..."
+                className="flex-1 m-6 p-8 bg-black/30 border border-white/5 rounded-2xl text-lg font-light leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 transition-all custom-scrollbar placeholder:opacity-20"
+              />
+            </div>
             <div className="p-6 border-t border-white/5 bg-[#0C121E]">
               <button 
                 onClick={handleAction} 
@@ -245,7 +266,7 @@ export default function App() {
                     <div className="w-4 h-4 border-2 border-[#080B14]/30 border-t-[#080B14] rounded-full animate-spin" />
                     <span>PROCESSANDO REQUISIÇÃO...</span>
                   </div>
-                ) : `EXECUTAR ${activeTab.toUpperCase()}`}
+                ) : `EXECUTAR ${(activeTab || "").toUpperCase()}`}
               </button>
             </div>
           </div>
