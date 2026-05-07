@@ -18,33 +18,27 @@ import {
 
 /**
  * =========================================================================
- * CONFIGURAÇÃO DE PRODUÇÃO (VERCEL / VS CODE)
+ * ESTADO DE PRODUÇÃO BLINDADO (VERCEL / VS CODE)
  * =========================================================================
- * A sua chave foi inserida diretamente conforme solicitado para resolver o erro imediato.
- * * NOTA DE SEGURANÇA: Num futuro próximo, quando o sistema estiver estável, 
- * remova a chave daqui e deixe apenas no painel do Vercel por segurança.
+ * 1. Chave de API: Fixada conforme solicitação para o ambiente de produção.
+ * 2. Modelo: Fixado em 'gemini-2.5-flash' conforme o relatório técnico de
+ * transições arquiteturais (Maio de 2026), erradicando os erros 404 da série 1.5.
  */
 const apiKey = "AIzaSyAiikeC8gPrzBRjiB1yVkYwRSuD6bfCayE"; 
-
-/**
- * ESTABILIZAÇÃO DE MODELO: 
- * O sufixo "-latest" força o API Gateway da Google a encontrar o modelo ativo na sua região, 
- * aniquilando o erro 404 que estava a receber.
- */
-const MODEL_ID = "gemini-1.5-flash-latest"; 
+const MODEL_ID = "gemini-2.5-flash"; 
 
 const GOLDEN_RULES = `
 REGRAS ABSOLUTAS E INQUEBRÁVEIS (ORDENAMENTO JURÍDICO BRASILEIRO):
 1. ESTRUTURA FORMAL: Toda peça deve seguir a ordem lógica do CPC/2015 ou CPP.
-2. EXAUSTIVIDADE TÉCNICA: Seja exaustivo. Analise meticulosamente cada nuance do caso, não deixe nenhum assunto, tese subsidiária ou argumento de fora.
-3. LINGUAGEM: Utilizar português culto e técnico-jurídico, evitando coloquialismos.
-4. CITAÇÕES E FONTES: Busque sempre fontes altamente confiáveis. Dê preferência absoluta a livros de doutrina, trabalhos científicos consolidados e jurisprudência dos tribunais superiores. Cite as fontes ESTRITAMENTE conforme a norma ABNT NBR 6023:2018.
-5. OBJETIVIDADE DE RETORNO: Retornar apenas o conteúdo final solicitado (JSON ou Texto).
+2. EXAUSTIVIDADE TÉCNICA: Não omitir teses subsidiárias. Em resumos e análises, seja exaustivo, não deixe nenhum assunto de fora. Analise meticulosamente cada nuance.
+3. LINGUAGEM: Utilizar português culto e técnico-jurídico.
+4. CITAÇÕES E FONTES: Busque sempre fontes confiáveis. Dê preferência absoluta a livros de doutrina e trabalhos científicos consolidados. Citar fontes estritamente conforme NBR 6023:2018 da ABNT.
+5. OBJETIVIDADE DE RETORNO: Retornar estritamente o conteúdo solicitado (JSON ou Texto puro).
 `;
 
 /**
  * ALGORITMO DE RESILIÊNCIA DE REDE (Exponential Backoff)
- * Garante que o LexFlow não desiste se a API da Google apresentar latência.
+ * Garante que o LexFlow não falha por latências momentâneas do API Gateway.
  */
 const fetchWithBackoff = async (url, options) => {
   const delays = [1000, 2000, 4000, 8000, 16000];
@@ -86,7 +80,7 @@ const ModalErro = ({ erro, onClose }) => {
           <p className="text-gray-300 text-sm font-mono break-words leading-relaxed">{erro}</p>
         </div>
         <button onClick={onClose} className="w-full py-3 text-sm font-bold text-white bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-all active:scale-[0.98]">
-          Reconhecer e Tentar Novamente
+          Reconhecer e Corrigir
         </button>
       </div>
     </div>
@@ -117,9 +111,9 @@ export default function App() {
     
     let moduleInstruction = "";
     if (moduleType === 'redacao') {
-      moduleInstruction = "Aja como Advogado Sênior. Redija minuta processual exaustiva e meticulosa conforme CPC/2015. Baseie-se em doutrina (livros/trabalhos científicos) referenciada em ABNT NBR 6023. Retorne apenas o texto puro da peça.";
+      moduleInstruction = "Aja como Advogado Sênior. Redija minuta processual exaustiva e meticulosa conforme CPC/2015. Baseie-se em doutrina (livros/trabalhos científicos). Retorne apenas o texto puro da peça sem marcadores de código.";
     } else {
-      moduleInstruction = "Analise o caso com rigor técnico, sendo 100% exaustivo. Retorne EXCLUSIVAMENTE um JSON com as chaves: analise_preditiva, probabilidade_exito, e jurisprudencia (array contendo tribunal, ementa, abnt com fontes científicas/livros).";
+      moduleInstruction = "Analise o caso com rigor técnico e não deixe nenhum assunto de fora. Retorne EXCLUSIVAMENTE um objeto JSON válido com: analise_preditiva, probabilidade_exito, e jurisprudencia (array contendo tribunal, ementa, abnt com fontes científicas/livros).";
     }
 
     const fullPrompt = `${GOLDEN_RULES}\n\nMODO: ${moduleInstruction}\n\nCONTEÚDO BASE: "${promptText}"`;
@@ -133,25 +127,37 @@ export default function App() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        const msg = errorData.error?.message || "O servidor da Google não pôde processar a requisição no momento.";
-        throw new Error(`Oráculo Indisponível (${response.status}): ${msg}`);
+        let errorMsg = errorData.error?.message || "O servidor não pôde processar a requisição no momento.";
+        if (response.status === 403) errorMsg = "Acesso Negado (403): A chave de API é inválida ou foi revogada por vazamento.";
+        if (response.status === 404) errorMsg = `Erro 404: O modelo '${MODEL_ID}' não existe ou foi descontinuado neste cluster.`;
+        throw new Error(`Oráculo Indisponível: ${errorMsg}`);
       }
 
       const data = await response.json();
       const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       if (moduleType === 'redacao') {
-        setResults(prev => ({ ...prev, [moduleType]: textResponse.replace(/```(markdown|text)?/gi, '').trim() }));
+        // Remove delimitadores de markdown com regex segura para evitar quebra no esbuild
+        setResults(prev => ({ ...prev, [moduleType]: textResponse.replace(/`{3}(markdown|text|plain|html)?/gi, '').trim() }));
       } else {
-        const start = textResponse.indexOf('{');
-        const end = textResponse.lastIndexOf('}');
+        // Blindagem contra MissingFieldException e falhas de parser apontadas no relatório
+        let cleanedText = textResponse.replace(/`{3}(?:json)?/gi, '').replace(/`{3}/g, '').trim();
+        const start = cleanedText.indexOf('{');
+        const end = cleanedText.lastIndexOf('}');
+        
         if (start === -1 || end === -1) {
-          throw new Error("A IA não retornou o formato estruturado necessário. Por favor, tente executar novamente.");
+          throw new Error("Falha de Parsing: A arquitetura 2.5 não retornou um objeto JSON estruturado válido. Tente reformular os dados fáticos.");
         }
-        setResults(prev => ({ ...prev, [moduleType]: JSON.parse(textResponse.substring(start, end + 1)) }));
+        
+        try {
+          const jsonString = cleanedText.substring(start, end + 1);
+          setResults(prev => ({ ...prev, [moduleType]: JSON.parse(jsonString) }));
+        } catch (parseError) {
+          throw new Error("Erro Crítico de Estrutura: A IA gerou caracteres inválidos no JSON. Execute novamente o pipeline.");
+        }
       }
     } catch (err) {
-      setError(err.message || "Ocorreu um erro de conexão com a inteligência.");
+      setError(err.message || "Ocorreu um erro de conexão com a inteligência artificial.");
     } finally {
       setLoading(false);
     }
@@ -211,7 +217,7 @@ export default function App() {
         <div className="flex items-center justify-between border-b border-white/10 pb-8">
           <h2 className="text-3xl font-light text-white tracking-tight">Parecer da Inteligência</h2>
           {data.probabilidade_exito !== undefined && (
-            <div className="px-6 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40 rounded-full text-[#C5A059] font-black text-lg shadow-[0_0_15px_rgba(197,160,89,0.2)]">
+            <div className="px-6 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40 rounded-full text-[#C5A059] font-black text-lg">
               {data.probabilidade_exito}% de Êxito
             </div>
           )}
@@ -231,14 +237,14 @@ export default function App() {
           <div className="space-y-6">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.4em]">Fontes Doutrinárias & Precedentes (ABNT)</h3>
             {data.jurisprudencia.map((j, i) => (
-              <div key={i} className="p-6 bg-black/40 rounded-xl border border-white/5 group hover:border-[#C5A059]/30 transition-colors">
+              <div key={i} className="p-6 bg-black/40 rounded-xl border border-white/5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-[#C5A059] uppercase tracking-widest block">{j.tribunal}</span>
-                  <button onClick={() => copyToClipboard(j.ementa)} className="text-gray-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
+                  <button onClick={() => copyToClipboard(j.ementa)} className="text-gray-500 hover:text-white transition-colors">
                     <Copy className="w-3 h-3" />
                   </button>
                 </div>
-                <p className="text-gray-400 text-sm mb-4 italic leading-relaxed break-words">"{j.ementa}"</p>
+                <p className="text-gray-400 text-sm mb-4 italic leading-relaxed">"{j.ementa}"</p>
                 <div className="pt-4 border-t border-white/5 text-[10px] text-gray-500 font-mono">
                   FONTE ABNT: {j.abnt}
                 </div>
@@ -291,7 +297,7 @@ export default function App() {
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Workspace Jurídico: Insira os fatos e serei 100% exaustivo na análise doutrinária..."
+              placeholder="Workspace Jurídico: Descreva o caso meticulosamente..."
               className="flex-1 m-8 p-8 bg-black/40 border border-white/5 rounded-3xl text-lg font-light leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 custom-scrollbar selection:bg-[#C5A059]/30 placeholder:opacity-40"
             />
             <div className="p-8 border-t border-white/5 bg-[#0C121E]">
